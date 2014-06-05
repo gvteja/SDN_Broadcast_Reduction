@@ -1,0 +1,132 @@
+Copy the mininet and pox tar files into the mininet VM and extract the tars into the home folder replacing the existing mininet and pox folders.
+
+The new mininet has to be re-installed. Run this command to install mininet :
+~mininet/mininet/util/install.sh -n
+
+Now everything is setup.
+
+Starting Mininet :
+To start mininet with a custom data center tree topology, use the following command :
+sudo mn --controller=remote --custom ~/mininet/custom/genTreeTopo.py --topo gentreetopo,2,2,2,4,2
+
+Command explanation :
+
+--controller option specifies the location of the controller the switches have to connect to.
+In our case we are running the controller - POX and mininet on the same host. So we specify remote with no ip or port. It defaults to localhost and port 6633.
+
+--custom option is used to specify the path of a file to load a custom topology from.
+In our case the file where the code for building a generic, 3-tier, multi rooted tree topology resides - genTreeTopo.py
+
+--topo option specifies the network topology to be built in mininet.
+gentreetopo is the name of our 3-tier topology.
+It takes the following parameters in the following order:
+1. number of pods
+2. number of core switches
+3. number of aggregate switches per pod
+4. number of edge switches per pod
+5. number of hosts per edge switch
+
+Starting POX :
+To start POX with our broadcast reduction component, use the following command:
+~/pox/pox.py py openflow.discovery broadcast_reduction global_switch_stats
+
+Command explanation:
+When starting POX, you specify all the modules or components that you want to launch.
+Our component is broadcast_reduction which is the module where pesudo MAC is implemented. It depends on 2 other stock components provided by POX, namely 'py' and 'openflow.discovery'.
+- py component is used to provide a python CLI. Through this we provide interface for moving hosts and also for gathering stats from all the switches.
+- openflow.discovery component provides links events which our component uses to build a global view of the entire network.
+The other component global_switch_stats also uses the py component to provide CLI for aggregating statistics from all the switches.
+
+The broadcast_reduction component takes a few parameters :
+
+- These 3 parameters control when the network discovery(discovery of all switches and the links between them) is considered complete. After this, the component starts partitioning the topology and inserting forwarding entries.
+*setup - specifies the number of seconds after which to consider discovery complete
+*num_links - specifies the number of links to discover after which the disocovery is considered complete
+*max_link_interval - specifies the number of seconds since the last link discovery, if elapsed, discovery should be considered complete. 
+This is the default parameter used to indicate discovery completion and the default value is 5s. If no links is discovered for 5s, then its assumed that all the links in the network have been discovered.
+
+- connected_perc - This parameter specifies the maximum percentage of ports connected to other switches in an edge switch.
+This is required by our component to identify the edge switches, since it assumes that agg or core switches have a higher percenage of their ports connected to other switches. The default value is 50 i.e not more than 50% of its ports are connected to other switches.
+
+- arp_timeout - This parameter specifies the maximum time(in secs) of a valid entry in a host's ARP table, i.e. the time after which an entry in an ARP table becomes stale.
+When an IP moves within the data center(eg : migration of virtual machine(VM), Virtual IP), its Pseudo MAC(PMAC) changes and all the packets to the old PMAC are diverted to the new PMAC for some time.
+This some time is value of the parameter. Since after the timeout, a host again makes an ARP request and the controller will respond back with the updated PMAC.
+The default value is 2s.
+Eg : 
+~/pox/pox.py py openflow.discovery broadcast_reduction --max_link_interval=10 --connected_perc=50 --arp_timeout=5 global_switch_stats
+
+
+Once both Mininet and POX have started, wait for 'App initialization done' message in POX. This message indicates that all the neccessary forwarding entries have been inserted into the switches and communicaiton between hosts can happen now. Can use the regular commands in mininet like pingall to test connectivity among hosts.
+
+CLI interfaces :
+
+*POX :
+
+broadcast_reduction :
+move - this command is used to move a VM from one position in the topology to another.
+It takes 3 parameters :
+host to move - the IP address of the host to move in string format
+switch       - the dpid of the new switch the host should be moved to
+port         - the port in the new switch the host should be moved to
+Eg : 
+move('10.0.0.1', 7, 4)
+
+move_batch - this command is used to move multiple VMs. It takes its input from a file which is the only parameter it takes.
+Eg:
+move_batch('vms_to_migrate.txt')
+The input file should have one line for each VM to be moved. The syntax of the line is as follows :
+<ip address of the host or VM> <destination switch> <port on destination switch>
+Eg :
+10.0.0.1 7 4
+10.0.0.2 3 3
+
+global_switch_stats:
+gstats - this command queires all the switches for their individual stats and aggragates them to give stats of traffic within the network. It does not take any params.
+It returns the aggregated number of pkts trasmitted, received, dropped and errored within the network.
+Eg:
+rx_packets : 2725 tx_packets : 3250 rx_dropped : 0 tx_dropped : 0 rx_errors : 0 tx_errors : 0
+*Mininet :
+
+genTraffic - the command allows you to generate traffic parallel ping traffic and return the results. It picks 2 random hosts and issues a ping command on one host to ping the other
+It takes 4 parameters :
+1. interval - interval between issue of ping commands in milli seconds(ms). The default value is 10ms.
+2. duration - for how long to issue ping commands. The default value is 1000ms.
+3. count - the number of packets to send in each ping command. The default value is 3.
+4. output file - the file to write the generated output into. By default it does not print the output to screen to file. It takes a special value '.' to print the output to screen/stdout. 
+Eg : 
+genTraffic 10 5000 5
+It returns the num of ping commands issued, the ping commands which were parsed, the total num of packets sent, received and the average rtt of all the pkts.
+Eg:
+Total ping cmds:9, op parsed:9, pkts sent:45, pkts recvd:45, avg rtt:5.52466666667
+
+GTBatch - this command is used to run genTraffic in batch with different parameters. It takes its input from a file.
+It takes 2 params.
+1. The input file from where to take the set of params for different runs
+2. The output file to write the result of each run into. The default value is None. So does not write into any file.
+This module also store the results of all the runs in memory so that particular run result can be queried later on.
+There should be one line for one each run in the input file. That line should contain only the parameters passed to genTraffic in the same order and syntax.
+Eg of command invocation:
+GTBatch gtb_inp.txt gtb_op.txt
+
+Eg of inp file:
+10 1000 5
+10 1000 2
+20 3000 10
+
+Eg of output file:
+Total ping cmds:8, op parsed:8, pkts sent:40, pkts recvd:40, avg rtt:6.337625
+Total ping cmds:6, op parsed:6, pkts sent:12, pkts recvd:12, avg rtt:13.6621666667
+Total ping cmds:8, op parsed:8, pkts sent:80, pkts recvd:80, avg rtt:2.186875
+
+res - this command is used to query the results of the last GTBatch run. It takes the line num in the inp file as input and gives the result of the genTraffic run for those params.
+Eg :
+res 2
+This will return the genTraffic results for 2nd line - '10 1000 2'.
+
+Starting POX with normal layer 2(L2) switch forwarding :
+~/pox/pox.py py openflow.discovery openflow.spanning_tree --no-flood --hold-down forwarding.l2_learning global_switch_stats
+
+Here there is an extra component - openflow.spanning_tree. This component runs the spanning tree protocol on the network switches and this also relies on the openflow.discovery component to build a global view of the network.
+This is required when there are loops in the network, which is normally the case with Data center networks.
+The forwarding.l2_learning component is responsible for making the switches function as a layer 2 forwarding switch.
+
