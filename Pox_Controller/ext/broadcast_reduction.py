@@ -646,7 +646,7 @@ def _check_handle_migration(event):
         update our internal tables
         change the assigned mac string - not assign the old pmac for the timeout period of time
         '''
-        if org_mac in actual_pmac:
+        if org_mac == old_amac:
             log.info( 'VM migration detected. IP:{0}, old pos - {1}:{2} new pos - {3}:{4}'.format(src_ip, sw, port, event.dpid, event.port) )
         else:
             log.info( 'Virtual ip takeover detected. IP:{0}, old pos - {1}:{2} new pos - {3}:{4}'.format(src_ip, sw, port, event.dpid, event.port) )
@@ -756,7 +756,7 @@ def move_host(ip, new_sw, new_port, mac=None, event=None):
         rewrite_action = of.ofp_action_dl_addr.set_dst(adrs.EthAddr(new_pmac))
         msg.actions.append(rewrite_action)
         #choose one up link by hashing
-        up_ports = g[new_sw].keys()
+        up_ports = g[old_sw].keys()
         num_routes = len(up_ports)
         #msg.actions.append(of.ofp_action_output(port = up_ports[ random.randint(0, num_routes - 1) ] ))#simple hashing. edge switch x sends to agg switch x
         #old_sw_con.send(msg)
